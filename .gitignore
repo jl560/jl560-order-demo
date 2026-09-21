@@ -1,4 +1,11 @@
+# .gitignore：Git版本控制的配置文件（和Go语言无关）
+# 作用：告诉git哪些文件/文件夹不要加入版本快照，不要git commit，不要push上传到GitHub
+# 语法：#代表注释；写文件名/通配符，匹配到的内容直接被git忽略
+# 是隐藏文件，文件名最前面有一个小数点 .
+
+
 # Binaries for programs and plugins
+# Go编译生成的各类二进制可执行程序、插件文件
 *.exe
 *.exe~
 *.dll
@@ -6,14 +13,29 @@
 *.dylib
 
 # Test binary, built with `go test -c`
+# go test -c 编译出来的测试二进制程序
 *.test
 
 # Output of the go coverage tool
+# go test覆盖率测试输出文件
 *.out
 
+# vendor目录：本地依赖缓存目录，不需要提交git
 vendor/
 
+# Node：依赖和构建产物不进 git
+node_modules/
+dist/
+
+# 本机配置文件：存放数据库密码等真实配置，绝对不能进git
+# .env本身被忽略；.env.example（不含真实值）会正常提交，用来告诉别人需要哪些配置
+.env
+
+# IDE配置缓存
+# JetBrains系列IDE（Goland、IDEA）项目配置缓存
 .idea/
+# VSCode编辑器本地工作缓存
 .vscode/
+# vim编辑器临时交换文件
 *.swp
 *.swo
