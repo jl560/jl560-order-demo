@@ -1,0 +1,40 @@
+body {
+  font-family: sans-serif;
+  max-width: 720px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.hint {
+  color: #555;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: flex-end;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.error {
+  color: #b00020;
+  min-height: 1.2em;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+}
