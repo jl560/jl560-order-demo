@@ -109,11 +109,6 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 	/// 注册用户创建路由
 	// POST /users —— 处理客户端提交的新用户注册请求
 	router.POST("/users", func(c *gin.Context) {
-		/*
-			Gin 上下文（c）：由 Gin 框架传入，封装了本次 HTTP 请求的所有信息
-			包括请求头、请求体、路径参数、响应写入器等。用于绑定 JSON、返回响应等操作
-		*/
-
 		// 绑定到 CreateUserRequest，不是 User：请求体没有 ID，并且带校验标签。
 		var req CreateUserRequest
 
@@ -125,80 +120,9 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 			return
 		}
 
-		/*
-			第 1 步：从 Gin 请求中提取标准库 Context
-
-			ctx := c.Request.Context() 将当前 HTTP 请求的上下文提取出来，
-			赋值给变量 ctx。
-
-			这个 ctx 与本次 HTTP 请求“同生共死”：
-				- 正常情况：请求处理完，ctx 自动结束
-				- 异常情况：用户关闭浏览器、断网、或超时，ctx 会被立刻取消
-
-			第 2 步：将 ctx 传给数据库操作（db.ExecContext）
-
-			把 ctx 作为第一个参数传给 ExecContext，相当于给数据库操作
-			接了一根“电话线”：
-				- 如果用户一直正常，SQL 正常执行，返回结果
-				- 如果用户中途断开，ctx 发出取消信号，ExecContext 底层
-					会通过 TCP 连接向 PostgreSQL 发送取消请求，中断正在执行的 SQL
-
-			这样做的好处：避免数据库还在傻等，浪费 CPU 和连接资源。
-
-			第 3 步：参数化查询（$1、$2、$3 占位符）
-
-			`INSERT INTO users ... VALUES ($1, $2, $3)` 是一段 SQL 语句，
-			它本身属于 PostgreSQL 的 SQL 方言语法（$n 是 PostgreSQL 特有的占位符写法）。
-			在 Go 代码里，它只是作为一个字符串参数传给 db.ExecContext() 函数，
-			Go 编译器不会解析这段 SQL，而是把它原样发送给 PostgreSQL 服务器去解析和执行。
-
-			$1、$2、$3 是参数占位符，分别对应后面传入的：
-				req.Username     → $1
-				password_hash    → $2（bcrypt 之后，不是明文）
-				req.Age          → $3
-
-			为什么不用字符串拼接？
-				因为拼接会被 SQL 注入攻击，比如用户输入 ' OR '1'='1。
-				用占位符 + 参数传递，Go 驱动会把参数当“纯数据值”传给数据库，
-				不会当成 SQL 代码执行，彻底杜绝注入风险。
-
-			第 4 步：返回值处理
-
-			db.ExecContext 返回两个值：
-				第一个（用 _ 忽略）：sql.Result 类型，包含插入的行数、自增 ID 等信息
-				第二个（赋值给 err）：error 类型，如果有错误则非 nil
-
-			当前注册接口不需要返回插入后的 ID，所以用 _ 丢弃第一个返回值，
-			只关心 err 是否为 nil。
-
-			第 5 步：错误处理与响应
-
-			如果 err != nil（比如用户名重复、数据库连接断开等），
-			则调用 c.JSON() 向客户端返回 HTTP 响应。
-
-			c.JSON() 是 Gin 框架提供的方法，作用是把数据序列化成 JSON 格式，
-			放进 HTTP 响应体里，发回给客户端。
-
-			gin.H 是 Gin 框架定义的一个类型别名：
-				本质是 map[string]interface{}（即键为字符串、值为任意类型的字典）。
-				它只是为了让写 JSON 数据时更简短，比如：
-					gin.H{"error": "创建用户失败"}
-				等价于：
-					map[string]interface{}{"error": "创建用户失败"}
-
-			c.JSON(500, gin.H{"error": "创建用户失败"}) 的含义：
-				1. 状态码 500：告诉客户端“服务器内部错误”
-				2. 数据体 {"error":"创建用户失败"}：告诉客户端具体的错误原因
-				客户端收到后可以在前端展示这个错误信息。
-		*/
-		ctx := c.Request.Context()
-
-		err = CreateUser(ctx, db, req)
+		err = CreateUser(c.Request.Context(), db, req)
 		if err != nil {
-			// 日志落地。这行会把 Service 包装好的 "创建用户失败: xxx" 打印到终端。
-			// 在这里用 log.Println 给开发者看。
-			log.Println("CreateUser error: - router.go:185", err)
-
+			log.Println("CreateUser error:", err)
 			c.JSON(500, gin.H{
 				"error": "创建用户失败",
 			})
@@ -213,161 +137,21 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 	/// 注册用户查询路由
 	// GET /users —— 查询所有用户
 	router.GET("/users", func(c *gin.Context) {
-		/*
-			获取当前 HTTP 请求对应的标准库 Context。
-			这个 ctx 用于控制超时和取消，若客户端断开连接，数据库查询将被中断。
-		*/
-		ctx := c.Request.Context()
-
-		/*
-			查询 users 表，按 id 升序返回所有记录。
-			db.QueryContext() 会返回一个 *sql.Rows 结果集，以及可能的错误。
-		*/
-		rows, err := db.QueryContext(
-			ctx,
-			`SELECT id, username, password_hash, age
-		 FROM users
-		 ORDER BY id`,
-		)
+		users, err := ListUsers(c.Request.Context(), db)
 		if err != nil {
-			/*
-				如果查询失败（例如数据库连接断开、SQL 语法错误等），返回 500。
-				500 Internal Server Error 表示服务器内部处理出错，客户端无法解决。
-			*/
 			c.JSON(500, gin.H{
 				"error": "查询用户失败",
 			})
 			return
 		}
 
-		/*
-			defer rows.Close() 确保在函数返回前释放数据库连接。
-			如果不关闭，连接会一直被占用，导致连接池耗尽。
-			rows 对象内部持有数据库连接，必须在遍历完后显式关闭。
-		*/
-		defer rows.Close()
-
-		// 用来保存最终查询到的所有用户
-		var users []UserResponse
-
-		/*
-			【游标（指针）机制详解】
-
-			rows 本身是一个指针（游标），指向结果集的当前位置，但初始时不指向任何有效行。
-
-			rows.Next() 的作用是让这个指针向下移动一行：
-			- 如果移动后指向有效数据，则返回 true
-			- 如果已经移到最后一行之后（无更多数据），则返回 false
-
-			它相当于“翻书页”，只改变书签（指针）的位置，并不读取内容。
-			每次调用前必须确保 rows 没有被关闭。
-		*/
-		/*
-			★ rows *sql.Rows 内存模型
-
-			rows（变量）
-			  │
-			  │ 是一个指针，保存了一个内存地址
-			  ▼
-			┌───────────────────────────────────────────────────┐
-			│                   sql.Rows 对象                   │
-			│  ┌─────────────────────────────────────────────┐  │
-			│  │  游标位置（当前行索引）                       │  │
-			│  │  例如：当前指向第 2 行                        │  │
-			│  │  rows.Next() 让游标 +1                       │  │
-			│  │  rows.Scan() 读取游标所指行的数据             │  │
-			│  ├─────────────────────────────────────────────┤  │
-			│  │  列信息：                                    │  │
-			│  │  - 列名：[id, username, password_hash, age]   │  │
-			│  │  - 列类型：[int, string, string, int]        │  │
-			│  ├─────────────────────────────────────────────┤  │
-			│  │  连接引用：指向 db 连接池中的一个连接          │  │
-			│  ├─────────────────────────────────────────────┤  │
-			│  │  数据缓冲区：预读的部分行数据                  │  │
-			│  │  （减少网络往返，提升性能）                    │  │
-			│  ├──────────────────────────────────────────────┤  │
-			│  │  错误状态：记录遍历过程中发生的错误             │  │
-			│  │  （通过 rows.Err() 获取）                     │  │
-			│  └──────────────────────────────────────────────┘  │
-			└────────────────────────────────────────────────────┘
-
-			【与 C++ 的对比】
-			Go:  rows.Next() + rows.Scan()
-			      ↓
-			C++:  iterator++ + *iterator
-
-			【关键理解】
-			rows.Next()  → 只移动游标（翻书签），不读取数据
-			rows.Scan()  → 只读取数据（读书签所在页），不移动游标
-			两者各司其职，配合完成逐行遍历。
-		*/
-		for rows.Next() {
-			var user User
-
-			/*
-				rows.Scan() 的作用：将当前行的各列数据依次赋值给传入的变量（指针）。
-
-				关键理解：
-				- Scan() 本身不会移动游标，它只读取“当前游标所指的那一行”的数据。
-				- 所以必须先用 rows.Next() 把游标移到有效行，再调用 Scan()。
-				- 传入 &user.ID 是因为 Scan 需要知道变量的内存地址，才能把读取的值写入该地址。
-				- 如果只传 user.ID（值），Scan 只能拿到副本，无法修改原变量。
-
-				参数顺序必须与 SELECT 子句中的列顺序完全一致。
-				如果列类型与变量类型不匹配，或某列为 NULL 且变量不可接受 NULL，则会返回错误。
-			*/
-			/*
-				rows.Scan 的内部实现，本质上就是通过反射解引用指针（*ptr = 从数据库读取的值），
-				它将当前行的数据直接写入传入的地址所指向的内存位置，
-				与用 C/C++ 通过指针修改函数外部变量的逻辑完全一致
-				——只不过在 Go 里，我们需要显式传 & 取地址，
-				Scan 内部替我们完成了“拿到地址 → 写入值”这一整套操作。
-			*/
-			err := rows.Scan(
-				&user.ID,
-				&user.Username,
-				&user.PasswordHash,
-				&user.Age,
-			)
-			if err != nil {
-				/*
-					Scan 错误可能因为类型转换失败、列数不匹配等，返回 500。
-					500 Internal Server Error 表示服务器内部处理出错。
-				*/
-				c.JSON(500, gin.H{
-					"error": "读取用户数据失败",
-				})
-				return
-			}
-
-			// 将当前用户追加到切片中
-			users = append(users, toUserResponse(user))
+		var responses []UserResponse
+		for _, user := range users {
+			responses = append(responses, toUserResponse(user))
 		}
 
-		/*
-			遍历结束后，必须检查 rows.Err() 以发现遍历过程中的错误。
-
-			原因：
-			rows.Next() 返回 false 可能有两种情况：
-			1. 正常遍历到了最后一行（无错误）
-			2. 遍历过程中发生了网络中断、驱动内部错误等
-
-			rows.Err() 就是用来区分这两种情况的。
-			如果是情况 2，我们同样返回 500，告诉前端服务器内部出问题了。
-		*/
-		if err := rows.Err(); err != nil {
-			c.JSON(500, gin.H{
-				"error": "读取用户数据失败",
-			})
-			return
-		}
-
-		/*
-			返回用户列表，状态码 200 OK。
-			gin.H{"users": users} 将切片序列化为 JSON 数组。
-		*/
 		c.JSON(200, gin.H{
-			"users": users,
+			"users": responses,
 		})
 	})
 
@@ -402,72 +186,16 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 			return
 		}
 
-		/*
-			3. 获取请求上下文（用于超时/取消控制）。
-			若客户端断开连接，ctx 会被取消，数据库查询会终止，节省服务器资源。
-		*/
-		ctx := c.Request.Context()
-
-		/*
-			4. 执行参数化查询（单条记录）。
-
-			【与 QueryContext 的对比】
-			QueryRowContext 返回的是 *sql.Row 而不是 *sql.Rows。
-			它内部也维护了一个隐形的游标，但只指向查询结果的第一行（且仅此一行）。
-			调用 .Scan() 时，这个隐式游标已经被定位到了唯一的那一行数据上，
-			因此不需要再调用 Next()，直接读取即可。
-
-			【特殊情况】
-			若没有找到匹配的记录，Scan 会返回 sql.ErrNoRows。
-			若有多条匹配（实际上 id 是主键，不会发生），也只取第一行。
-
-			【防 SQL 注入】
-			使用 $1 占位符 + 参数传递的方式，而不是直接拼接 SQL 字符串。
-			数据库驱动会把参数当作“纯数据值”处理，不会当成 SQL 代码执行，
-			从根本上杜绝了 SQL 注入攻击。
-		*/
-		var user User
-		err = db.QueryRowContext(
-			ctx,
-			`SELECT id, username, password_hash, age
-			FROM users
-			WHERE id = $1`,
-			id,
-		).Scan(
-			&user.ID,
-			&user.Username,
-			&user.PasswordHash,
-			&user.Age,
-		)
-
-		/*
-			5. 处理查询错误。
-
-			情况一：sql.ErrNoRows
-			- 表示没有匹配的记录，即该 ID 在数据库中不存在
-			- 属于“资源不存在”，返回 404 Not Found
-
-			情况二：其他错误
-			- 如数据库连接失败、网络超时、驱动内部错误等
-			- 这些都属于服务器内部处理出错，客户端无法自行解决
-			- 返回 500 Internal Server Error
-		*/
+		user, err := GetUser(c.Request.Context(), db, id)
+		if errors.Is(err, ErrUserNotFound) {
+			c.JSON(404, gin.H{"error": "用户不存在"})
+			return
+		}
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				c.JSON(404, gin.H{"error": "用户不存在"})
-				return
-			}
 			c.JSON(500, gin.H{"error": "查询用户失败"})
 			return
 		}
 
-		/*
-			6. 查询成功，返回用户信息。
-
-			- 状态码 200 OK 表示请求成功
-			- Gin 自动将 UserResponse 序列化为 JSON
-			- 没有 password 字段，哈希不会离开服务器
-		*/
 		c.JSON(200, toUserResponse(user))
 	})
 
@@ -496,18 +224,17 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 
 		ctx := c.Request.Context()
 
-		updated, err := UpdateUser(ctx, db, id, req)
-		if err != nil {
-			log.Println("UpdateUser error: - router.go:486", err)
-			c.JSON(500, gin.H{
-				"error": "更新用户失败",
+		err = UpdateUser(ctx, db, id, req)
+		if errors.Is(err, ErrUserNotFound) {
+			c.JSON(404, gin.H{
+				"error": "用户不存在",
 			})
 			return
 		}
-
-		if !updated {
-			c.JSON(404, gin.H{
-				"error": "用户不存在",
+		if err != nil {
+			log.Println("UpdateUser error:", err)
+			c.JSON(500, gin.H{
+				"error": "更新用户失败",
 			})
 			return
 		}
@@ -532,18 +259,17 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 
 		ctx := c.Request.Context()
 
-		deleted, err := DeleteUser(ctx, db, id)
-		if err != nil {
-			log.Println("DeleteUser error: - router.go:522", err)
-			c.JSON(500, gin.H{
-				"error": "删除用户失败",
+		err = DeleteUser(ctx, db, id)
+		if errors.Is(err, ErrUserNotFound) {
+			c.JSON(404, gin.H{
+				"error": "用户不存在",
 			})
 			return
 		}
-
-		if !deleted {
-			c.JSON(404, gin.H{
-				"error": "用户不存在",
+		if err != nil {
+			log.Println("DeleteUser error:", err)
+			c.JSON(500, gin.H{
+				"error": "删除用户失败",
 			})
 			return
 		}
