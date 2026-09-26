@@ -62,6 +62,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// respondUserError 把 Repository 的错误译成 HTTP 状态。只有意料之外的失败才写日志。
+func respondUserError(c *gin.Context, err error, fallback string) {
+	switch {
+	case errors.Is(err, ErrUserNotFound):
+		c.JSON(404, gin.H{"error": "用户不存在"})
+	case errors.Is(err, ErrUsernameTaken):
+		c.JSON(409, gin.H{"error": "用户名已存在"})
+	default:
+		log.Println(err)
+		c.JSON(500, gin.H{"error": fallback})
+	}
+}
+
 func SetupRouter(db *sql.DB) *gin.Engine {
 
 	///// 创建 Gin 路由器
@@ -122,10 +135,7 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 
 		err = CreateUser(c.Request.Context(), db, req)
 		if err != nil {
-			log.Println("CreateUser error:", err)
-			c.JSON(500, gin.H{
-				"error": "创建用户失败",
-			})
+			respondUserError(c, err, "创建用户失败")
 			return
 		}
 
@@ -139,9 +149,7 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 	router.GET("/users", func(c *gin.Context) {
 		users, err := ListUsers(c.Request.Context(), db)
 		if err != nil {
-			c.JSON(500, gin.H{
-				"error": "查询用户失败",
-			})
+			respondUserError(c, err, "查询用户失败")
 			return
 		}
 
@@ -187,12 +195,8 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 		}
 
 		user, err := GetUser(c.Request.Context(), db, id)
-		if errors.Is(err, ErrUserNotFound) {
-			c.JSON(404, gin.H{"error": "用户不存在"})
-			return
-		}
 		if err != nil {
-			c.JSON(500, gin.H{"error": "查询用户失败"})
+			respondUserError(c, err, "查询用户失败")
 			return
 		}
 
@@ -225,17 +229,8 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 		ctx := c.Request.Context()
 
 		err = UpdateUser(ctx, db, id, req)
-		if errors.Is(err, ErrUserNotFound) {
-			c.JSON(404, gin.H{
-				"error": "用户不存在",
-			})
-			return
-		}
 		if err != nil {
-			log.Println("UpdateUser error:", err)
-			c.JSON(500, gin.H{
-				"error": "更新用户失败",
-			})
+			respondUserError(c, err, "更新用户失败")
 			return
 		}
 
@@ -260,17 +255,8 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 		ctx := c.Request.Context()
 
 		err = DeleteUser(ctx, db, id)
-		if errors.Is(err, ErrUserNotFound) {
-			c.JSON(404, gin.H{
-				"error": "用户不存在",
-			})
-			return
-		}
 		if err != nil {
-			log.Println("DeleteUser error:", err)
-			c.JSON(500, gin.H{
-				"error": "删除用户失败",
-			})
+			respondUserError(c, err, "删除用户失败")
 			return
 		}
 

@@ -5,10 +5,27 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/lib/pq"
 )
 
 // ErrUserNotFound 表示 users 表里没有这一行。Handler 把它译成 404。
 var ErrUserNotFound = errors.New("用户不存在")
+
+// ErrUsernameTaken 表示 username 撞上唯一约束。Handler 把它译成 409。
+var ErrUsernameTaken = errors.New("用户名已存在")
+
+// asUserWriteError 把数据库唯一冲突从普通写入失败里拆出来。
+func asUserWriteError(err error, wrap string) error {
+	if err == nil {
+		return nil
+	}
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+		return ErrUsernameTaken
+	}
+	return fmt.Errorf("%s: %w", wrap, err)
+}
 
 func listUsers(ctx context.Context, db *sql.DB) ([]User, error) {
 	rows, err := db.QueryContext(
@@ -74,10 +91,7 @@ func insertUser(ctx context.Context, db *sql.DB, username string, passwordHash s
 		passwordHash,
 		age,
 	)
-	if err != nil {
-		return fmt.Errorf("创建用户失败: %w", err)
-	}
-	return nil
+	return asUserWriteError(err, "创建用户失败")
 }
 
 func updateUser(ctx context.Context, db *sql.DB, id int, username string, passwordHash string, age int) error {
@@ -94,7 +108,7 @@ func updateUser(ctx context.Context, db *sql.DB, id int, username string, passwo
 		id,
 	)
 	if err != nil {
-		return fmt.Errorf("更新用户失败: %w", err)
+		return asUserWriteError(err, "更新用户失败")
 	}
 
 	rowsAffected, err := result.RowsAffected()

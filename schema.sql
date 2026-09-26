@@ -37,7 +37,11 @@ CREATE TABLE IF NOT EXISTS users (
     -- 完全相同（这一点和 MySQL 不一样）。而长度限制放在应用层
     -- （Phase 2 的 binding 标签）改起来不需要 ALTER TABLE，还能返回
     -- 友好的错误信息。所以长度归应用管，数据库只负责"不能为空"。
-    username TEXT   NOT NULL,
+    -- UNIQUE：同一个用户名只能有一行。重复插入会得到 PostgreSQL 错误码 23505，
+    -- Repository 把它变成 ErrUsernameTaken，Handler 再返回 409。
+    -- 已有的表不会被上面的 IF NOT EXISTS 改掉。本机旧表需要额外执行一次：
+    --     ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE (username);
+    username TEXT   NOT NULL UNIQUE,
 
     -- 存 bcrypt 哈希，不是用户输入的明文。
     -- 应用层写入前会哈希；GET 接口不会把这一列返回给客户端。
@@ -50,21 +54,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- ============================================================
--- 这里特意"没有"加的东西，以及为什么
+-- 这里特意没有加的东西，以及为什么
 -- ============================================================
 --
--- 1. UNIQUE (username)
---
---    原则：约束应该和处理它的代码同时加，不能提前。
---
---    如果现在加上，插入重复用户名时数据库会报错，而 router.go 目前对所有
---    错误一律返回 500。结果是用户看到"创建用户失败"+ 服务器内部错误，
---    体验反而比没有约束更差，日志里还会多出一个看起来像 bug 的 500。
---
---    真正处理它的代码在 Phase 4：识别 PostgreSQL 的错误码 23505，
---    映射成 409 Conflict。到那时再加这个约束。
---
--- 2. created_at / updated_at
+-- created_at / updated_at
 --
 --    当前代码没有任何地方读或写它们，加了就是死字段 —— 它会出现在表结构里、
 --    出现在 SELECT * 里、出现在你向别人解释这张表的时候，但什么用都没有。
