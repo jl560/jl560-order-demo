@@ -1,7 +1,7 @@
 import type { ApiError, User, UserWritePayload, UsersResponse } from '../types/user.ts'
 
-// 开发时走相对路径，由 Vite 代理到 Go。改地址只动这一处。
-const API_BASE = ''
+// F6：直连 Go，让浏览器发出跨源请求。vite.config.ts 里的代理还在，绝对地址不会走它。
+const API_BASE = 'http://127.0.0.1:8080'
 
 async function readApiError(response: Response): Promise<string> {
   try {

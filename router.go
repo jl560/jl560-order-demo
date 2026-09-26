@@ -67,6 +67,19 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 	///// 创建 Gin 路由器
 	router := gin.Default()
 
+	// 页面在 localhost:5173，直连 :8080 时由这里统一允许跨源读取。
+	// OPTIONS 是浏览器在 POST/PUT/DELETE 之前的预检，这里直接返回，不进入业务 Handler。
+	router.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "http://localhost:5173")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+
 	// 前端改由 Vite 在 :5173 开发。这里只提供 API，不再托管 HTML。
 
 	/*
