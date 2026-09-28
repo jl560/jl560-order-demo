@@ -9,7 +9,10 @@
 - **Go 1.26** —— 服务端语言
 - **Gin** —— HTTP Web 框架
 - **PostgreSQL** —— 关系型数据库
-- **React + TypeScript + Vite** —— 前端（开发时 :5173，API 在 :8080）
+- **React + TypeScript + Vite** —— 前端。`npm run dev` 在 :5173，请求发往 :8080
+- **Docker Compose** —— 另一套运行方式。开发用 `docker-compose.yml`，生产用 `docker-compose.prod.yml`
+
+用户增删改查仍在一个 API 进程里。gRPC、Redis、Kafka 已经在仓库中，但不在这条主链上：gRPC 只做跨进程实验，Redis 只缓存 `GET /users/:id`，Kafka 只发送创建用户成功后的 `UserCreated`。生产 Compose 不部署这三项。
 
 ## 前置条件
 
@@ -111,8 +114,10 @@ docker compose up --build
 | 服务 | 容器内端口 | 宿主机端口 | 谁来访问 |
 | --- | --- | --- | --- |
 | frontend | 80 | 5173 | 浏览器 |
-| backend | 8080 | 8080 | 浏览器里的页面 |
+| backend | 8080 | 8080 | frontend 的 Nginx，以及直接调用 API 的客户端 |
 | postgres | 5432 | 5433 | 只有 backend 容器，走主机名 `postgres` |
+
+Compose 里的页面是构建产物，接口基址是 `/api`。浏览器访问 `http://localhost:5173/api/...`，frontend Nginx 去掉 `/api` 前缀后转到 `backend:8080`。本机 `npm run dev` 不走这条路径，仍直连 `http://127.0.0.1:8080`。
 
 backend 的 `DB_HOST` 在 Compose 里被设为 `postgres`。容器里的 `localhost` 是 backend 自己，不是 Windows，也不是数据库容器。宿主机上原来的 PostgreSQL 仍在 `5432`，数据目录没有被挂进容器。
 
@@ -132,6 +137,8 @@ backend 的 `DB_HOST` 在 Compose 里被设为 `postgres`。容器里的 `localh
 | `DB_SSLMODE` | 否 | `disable` | SSL 模式 |
 | `SERVER_ADDR` | 否 | `:8080` | HTTP 监听地址 |
 | `SHUTDOWN_TIMEOUT` | 否 | `5s` | 优雅关闭的宽限期 |
+| `REDIS_ADDR` | 否 | 空 | 空则不连接 Redis，`GET /users/:id` 直接查 PostgreSQL |
+| `KAFKA_ADDR` | 否 | 空 | 空则只把 `UserCreated` 留在 outbox，不启动 Publisher |
 
 必填项没有默认值，是因为默认值要么是秘密（密码），要么在每台机器上本来就不同。
 缺任何一项，程序会在启动时立即退出并告诉你缺哪个，而不是等到第一个请求才报错。
@@ -177,19 +184,50 @@ config.go          配置加载：从环境变量读出 Config，缺必填项则
 db.go              数据库初始化：拼连接串、建连接池、Ping 验证
 router.go          路由注册与 HTTP 处理
 user.go            请求体 / 数据库行 / 响应体三种类型
-user_service.go    用户写操作：哈希密码
+user_service.go    用户业务：bcrypt；创建用户时和 outbox 同一事务
 user_repository.go 用户表的 SQL
-schema.sql         users 表建表语句
+user_cache.go      只缓存 GET /users/:id
+outbox_repository.go  outbox 的 SQL
+outbox_publisher.go   把未发送事件送到 Kafka
+schema.sql         users 和 outbox 的建表语句
 Dockerfile         Go API 镜像
-docker-compose.yml frontend、backend、postgres 一起启动
+docker-compose.yml 开发 Compose：5173、8080、5433
+docker-compose.prod.yml  生产 Compose：页面和 /api 走 frontend
+cmd/grpcserver     实验用 gRPC，不参与用户 CRUD
+cmd/userconsumer   打印 UserCreated，不参与用户 CRUD
+proto/  gen/       gRPC 实验的协议和生成代码
 frontend/          React + TypeScript + Vite
                    src/types  API JSON 类型
                    src/api    只负责 HTTP
                    src/components  只负责 UI
 .env.example       配置模板（不含真实值）
-Learning_log.md    学习记录
 ```
 
-## 已知待改进
+## 当前阶段
 
-容器化的最小运行方式已经在上面。后面的阶段才做 gRPC、Redis、Kafka 这类分布式实验，现在不要提前加。
+用户请求的主链是：
+
+```text
+Browser → React → HTTP/JSON → Gin Handler → Service → Repository → PostgreSQL
+```
+
+| 阶段 | 已完成的内容 |
+| --- | --- |
+| F6 | 开发页面跨源调用 API |
+| F7 | Handler、Service、Repository |
+| F8 | 区分 409 和 500，并补测试 |
+| F9 | 开发用 Docker Compose |
+| F10 | 实验用 gRPC：`InspectUsername` 和 `GET /test-grpc` |
+| F11 | Redis Cache Aside，只缓存 `GET /users/:id` |
+| F12 | 创建用户和 outbox 同一事务；Kafka 发送 `UserCreated` |
+| F13A | 生产构建走 frontend Nginx 的 `/api` |
+
+生产启动：
+
+```powershell
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+项目名是 `jl560-order-demo-prod`。frontend 只绑定 `127.0.0.1:8088:80`。backend 和 postgres 没有宿主机端口。这个 Compose 不包含 Redis、Kafka、gRPC。`KAFKA_ADDR` 为空时，创建用户仍会留下尚未发送的 outbox 行。
+
+没有登录。公网 IP 验收还没做。
