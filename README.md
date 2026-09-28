@@ -87,7 +87,7 @@ npm run dev
 浏览器打开 Vite 提示的地址，默认 `http://localhost:5173/`。
 不要用 :8080 打开页面：Go 现在只提供 API，不再托管 HTML。
 
-`fetch("/users")` 会打到 5173，由 Vite 代理转发到 8080。这不是 CORS 课，只是为了让开发时相对路径仍然能用。
+页面里的请求发往 `http://127.0.0.1:8080`，不经过 Vite 代理。
 
 看到下面两行说明启动成功：
 
@@ -97,6 +97,26 @@ HTTP 服务器启动，监听 :8080
 ```
 
 按 `Ctrl+C` 退出，服务会优雅关闭（先停止接收新请求，等在途请求做完，再退出）。
+
+### 5. 用 Docker Compose 启动
+
+这是另一套运行方式，不替换上面的本机 PostgreSQL。先停掉占用 `5173` 和 `8080` 的本机进程，并确认仓库根目录已有 `.env`（Compose 只用里面的 `DB_USER`、`DB_PASSWORD`、`DB_NAME`）。
+
+```powershell
+docker compose up --build
+```
+
+浏览器打开 `http://localhost:5173/`。三个服务的关系：
+
+| 服务 | 容器内端口 | 宿主机端口 | 谁来访问 |
+| --- | --- | --- | --- |
+| frontend | 80 | 5173 | 浏览器 |
+| backend | 8080 | 8080 | 浏览器里的页面 |
+| postgres | 5432 | 5433 | 只有 backend 容器，走主机名 `postgres` |
+
+backend 的 `DB_HOST` 在 Compose 里被设为 `postgres`。容器里的 `localhost` 是 backend 自己，不是 Windows，也不是数据库容器。宿主机上原来的 PostgreSQL 仍在 `5432`，数据目录没有被挂进容器。
+
+数据库文件在名为 `pgdata` 的数据卷里。`docker compose down` 只停容器，卷还在。`docker compose down -v` 会删掉这个卷，Compose 里的库才会消失。
 
 ## 配置项
 
@@ -157,8 +177,11 @@ config.go          配置加载：从环境变量读出 Config，缺必填项则
 db.go              数据库初始化：拼连接串、建连接池、Ping 验证
 router.go          路由注册与 HTTP 处理
 user.go            请求体 / 数据库行 / 响应体三种类型
-user_service.go    用户写操作：哈希密码并访问数据库
+user_service.go    用户写操作：哈希密码
+user_repository.go 用户表的 SQL
 schema.sql         users 表建表语句
+Dockerfile         Go API 镜像
+docker-compose.yml frontend、backend、postgres 一起启动
 frontend/          React + TypeScript + Vite
                    src/types  API JSON 类型
                    src/api    只负责 HTTP
@@ -169,10 +192,4 @@ Learning_log.md    学习记录
 
 ## 已知待改进
 
-这是一个正在进行的训练项目，以下问题是已知的，会在后续阶段处理：
-
-- 两个 GET 接口的 SQL 直接写在 `router.go` 里，没有走数据访问层
-- 所有数据库错误都返回 500，重复用户名等客户端错误没有区分
-- 没有自动化测试
-- 没有容器化
-- fetch 已拆到 `frontend/src/api/users.ts`，尚未专门讲解 CORS（开发时用了 Vite 代理）
+容器化的最小运行方式已经在上面。后面的阶段才做 gRPC、Redis、Kafka 这类分布式实验，现在不要提前加。
