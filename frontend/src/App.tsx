@@ -66,9 +66,11 @@ export default function App() {
   return (
     <>
       <h1>用户管理</h1>
-      <p className="hint">
-        页面跑在 Vite :5173，请求经代理转到 Go :8080，数据仍在 PostgreSQL。刷新后列表还在。
-      </p>
+      {import.meta.env.DEV ? (
+        <p className="hint">
+          开发页面在 Vite :5173，请求发往 http://127.0.0.1:8080。
+        </p>
+      ) : null}
       <UserForm
         username={username}
         password={password}
