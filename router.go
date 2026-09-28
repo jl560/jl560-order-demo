@@ -14,6 +14,12 @@ import (
 	"log"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	demopb "jl560-order-demo/gen/demo"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	//提供字符串与基本数据类型之间的转换，
 	//如 Atoi、Itoa、ParseInt 等（strconv = string conversion，字符串转换）
@@ -262,6 +268,45 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 
 		c.JSON(200, gin.H{
 			"message": "用户删除成功",
+		})
+	})
+
+	// GET /test-grpc 同时做同进程计算和一次 gRPC 调用。用户 CRUD 不经过这里。
+	router.GET("/test-grpc", func(c *gin.Context) {
+		username := c.Query("username")
+		localLength := utf8.RuneCountInString(username)
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+
+		conn, err := grpc.NewClient(
+			"127.0.0.1:50051",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			c.JSON(502, gin.H{
+				"local_length": localLength,
+				"remote_error": err.Error(),
+			})
+			return
+		}
+		defer conn.Close()
+
+		reply, err := demopb.NewDemoClient(conn).InspectUsername(ctx, &demopb.InspectUsernameRequest{
+			Username: username,
+		})
+		if err != nil {
+			c.JSON(502, gin.H{
+				"local_length": localLength,
+				"remote_error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"local_length":      localLength,
+			"remote_length":     reply.GetLength(),
+			"remote_acceptable": reply.GetAcceptable(),
 		})
 	})
 

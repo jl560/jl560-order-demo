@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option go_package = "jl560-order-demo/gen/demo";
+
+package demo;
+
+// Demo 是实验用的跨进程服务，不负责用户的增删改查。
+service Demo {
+  rpc InspectUsername(InspectUsernameRequest) returns (InspectUsernameReply);
+}
+
+message InspectUsernameRequest {
+  string username = 1;
+}
+
+message InspectUsernameReply {
+  int32 length = 1;
+  bool acceptable = 2;
+}
