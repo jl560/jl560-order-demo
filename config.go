@@ -54,6 +54,9 @@ type Config struct {
 	// HTTP 服务参数
 	ServerAddr      string        // 监听地址，形如 ":8080"
 	ShutdownTimeout time.Duration // 优雅关闭的宽限期
+
+	// RedisAddr 为空时不启用缓存。GET /users/:id 直接查 PostgreSQL。
+	RedisAddr string
 }
 
 /*
@@ -62,7 +65,8 @@ LoadConfig 加载配置：先把 .env 读进环境变量，再从环境变量读
 【必填与可选的划分依据】
 
 	一个配置能有默认值，前提是这个默认值既不是秘密、又在多数情况下正确。
-	  - DBHost / DBPort / DBSSLMode / ServerAddr / ShutdownTimeout 满足 → 给默认值
+	  - DBHost / DBPort / DBSSLMode / ServerAddr / ShutdownTimeout / RedisAddr 满足 → 给默认值
+	  - RedisAddr 的默认值是空：不连接 Redis
 	  - DBUser / DBPassword / DBName 不满足 → 必填，缺了就拒绝启动
 	给密码设默认值，等于又在代码里留了一个密码。
 
@@ -112,6 +116,7 @@ func LoadConfig() (*Config, error) {
 		DBName:     require("DB_NAME"),
 		DBSSLMode:  optional("DB_SSLMODE", "disable"),
 		ServerAddr: optional("SERVER_ADDR", ":8080"),
+		RedisAddr:  optional("REDIS_ADDR", ""),
 	}
 
 	// 必填项的缺失比格式错误更重要，所以先报它

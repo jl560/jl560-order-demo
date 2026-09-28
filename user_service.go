@@ -21,7 +21,15 @@ func ListUsers(ctx context.Context, db *sql.DB) ([]User, error) {
 }
 
 func GetUser(ctx context.Context, db *sql.DB, id int) (User, error) {
-	return getUserByID(ctx, db, id)
+	if user, ok := lookupCachedUser(ctx, id); ok {
+		return user, nil
+	}
+	user, err := getUserByID(ctx, db, id)
+	if err != nil {
+		return User{}, err
+	}
+	storeCachedUser(ctx, user)
+	return user, nil
 }
 
 func CreateUser(ctx context.Context, db *sql.DB, req CreateUserRequest) error {
@@ -37,9 +45,17 @@ func UpdateUser(ctx context.Context, db *sql.DB, id int, req UpdateUserRequest) 
 	if err != nil {
 		return err
 	}
-	return updateUser(ctx, db, id, req.Username, passwordHash, req.Age)
+	if err := updateUser(ctx, db, id, req.Username, passwordHash, req.Age); err != nil {
+		return err
+	}
+	invalidateCachedUser(ctx, id)
+	return nil
 }
 
 func DeleteUser(ctx context.Context, db *sql.DB, id int) error {
-	return deleteUser(ctx, db, id)
+	if err := deleteUser(ctx, db, id); err != nil {
+		return err
+	}
+	invalidateCachedUser(ctx, id)
+	return nil
 }

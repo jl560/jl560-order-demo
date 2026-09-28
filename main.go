@@ -56,6 +56,13 @@ func main() {
 	defer db.Close()
 	fmt.Println("✅ Go成功连接 PostgreSQL go_demo 数据库！ - main.go:38")
 
+	if err := InitUserCache(cfg.RedisAddr); err != nil {
+		log.Printf("Redis 不可用，查询单个用户时回退 PostgreSQL: %v", err)
+	} else if cfg.RedisAddr != "" {
+		log.Printf("已连接 Redis %s，只缓存 GET /users/:id", cfg.RedisAddr)
+		defer closeUserCache()
+	}
+
 	/*
 		目前数据库部分的执行流程：
 
