@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -37,7 +39,39 @@ func CreateUser(ctx context.Context, db *sql.DB, req CreateUserRequest) error {
 	if err != nil {
 		return err
 	}
-	return insertUser(ctx, db, req.Username, passwordHash, req.Age)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("开始创建用户事务失败: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	id, err := insertUser(ctx, tx, req.Username, passwordHash, req.Age)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(userCreatedPayload{
+		ID:       id,
+		Username: req.Username,
+		Age:      req.Age,
+	})
+	if err != nil {
+		return fmt.Errorf("生成 UserCreated 失败: %w", err)
+	}
+	if err := insertOutbox(ctx, tx, "UserCreated", payload); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交创建用户事务失败: %w", err)
+	}
+	committed = true
+	log.Printf("outbox recorded: user %d", id)
+	return nil
 }
 
 func UpdateUser(ctx context.Context, db *sql.DB, id int, req UpdateUserRequest) error {

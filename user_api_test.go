@@ -30,10 +30,15 @@ func TestUserAPIDuplicateAndNotFound(t *testing.T) {
 	if err := ensureUsernameUnique(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := ensureOutboxTable(db); err != nil {
+		t.Fatal(err)
+	}
 
 	const username = "f8errtest"
+	_, _ = db.Exec(`DELETE FROM outbox WHERE payload LIKE $1`, `%"username":"`+username+`"%`)
 	_, _ = db.Exec(`DELETE FROM users WHERE username = $1`, username)
 	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM outbox WHERE payload LIKE $1`, `%"username":"`+username+`"%`)
 		_, _ = db.Exec(`DELETE FROM users WHERE username = $1`, username)
 	})
 
@@ -75,6 +80,16 @@ func TestUserAPIDuplicateAndNotFound(t *testing.T) {
 	duplicate := serveJSON(router, http.MethodPost, "/users", body)
 	if duplicate.Code != http.StatusConflict {
 		t.Fatalf("duplicate status = %d, body = %s", duplicate.Code, duplicate.Body.String())
+	}
+	var outboxCount int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM outbox WHERE payload LIKE $1`,
+		`%"username":"`+username+`"%`,
+	).Scan(&outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if outboxCount != 1 {
+		t.Fatalf("outbox rows = %d, want 1", outboxCount)
 	}
 
 	missing := serveJSON(router, http.MethodGet, "/users/999999999", "")

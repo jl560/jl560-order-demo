@@ -82,16 +82,21 @@ func getUserByID(ctx context.Context, db *sql.DB, id int) (User, error) {
 	return user, nil
 }
 
-func insertUser(ctx context.Context, db *sql.DB, username string, passwordHash string, age int) error {
-	_, err := db.ExecContext(
+func insertUser(ctx context.Context, tx *sql.Tx, username string, passwordHash string, age int) (int, error) {
+	var id int
+	err := tx.QueryRowContext(
 		ctx,
 		`INSERT INTO users (username, password_hash, age)
-		 VALUES ($1, $2, $3)`,
+		 VALUES ($1, $2, $3)
+		 RETURNING id`,
 		username,
 		passwordHash,
 		age,
-	)
-	return asUserWriteError(err, "创建用户失败")
+	).Scan(&id)
+	if err != nil {
+		return 0, asUserWriteError(err, "创建用户失败")
+	}
+	return id, nil
 }
 
 func updateUser(ctx context.Context, db *sql.DB, id int, username string, passwordHash string, age int) error {

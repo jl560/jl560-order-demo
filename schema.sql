@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS users (
     age      INT    NOT NULL
 );
 
+-- outbox 和 users 在同一个数据库里。
+-- POST /users 成功时，用户行和一条 UserCreated 在同一个事务里提交。
+-- published_at 为空表示 Publisher 还没有把它送到 Kafka。
+-- 已有的数据库不会因为更新了这个文件就自动建表，需要单独执行一次下面的语句。
+CREATE TABLE IF NOT EXISTS outbox (
+    id           BIGSERIAL PRIMARY KEY,
+    event_type   TEXT NOT NULL,
+    payload      TEXT NOT NULL,
+    published_at TIMESTAMPTZ
+);
+
 -- ============================================================
 -- 这里特意没有加的东西，以及为什么
 -- ============================================================

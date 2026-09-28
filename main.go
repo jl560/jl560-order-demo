@@ -164,6 +164,13 @@ func main() {
 	// 程序结束时停止监听信号，释放内部资源。
 	defer stop()
 
+	if cfg.KafkaAddr == "" {
+		log.Printf("未配置 KAFKA_ADDR，Publisher 不启动")
+	} else {
+		StartOutboxPublisher(ctx, db, cfg.KafkaAddr)
+		log.Printf("Outbox Publisher 连接 Kafka %s", cfg.KafkaAddr)
+	}
+
 	// 第5步：在后台 goroutine 里启动 HTTP 服务
 	/*
 		★核心理解：ListenAndServe 是“真正执行任务”
