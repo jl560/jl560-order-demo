@@ -1,8 +1,8 @@
 # jl560-order-demo
 
-一个用 Go + Gin + PostgreSQL 写的用户管理服务，同时是一个软件工程训练项目。
+Go 全栈 / 后端工程学习项目。业务是用户增删改查，用来把一条请求链路和旁边的工程实验讲清楚。
 
-当前提供用户的增删改查接口，以及若干 Go 并发机制的实验接口。
+状态：Completed / Archived for learning purposes。不再增加功能。
 
 ## 技术栈
 
@@ -221,6 +221,7 @@ Browser → React → HTTP/JSON → Gin Handler → Service → Repository → P
 | F11 | Redis Cache Aside，只缓存 `GET /users/:id` |
 | F12 | 创建用户和 outbox 同一事务；Kafka 发送 `UserCreated` |
 | F13A | 生产构建走 frontend Nginx 的 `/api` |
+| F13B | 腾讯云公网 HTTP：宿主机 Nginx 监听 80，转到 `127.0.0.1:8088` |
 
 生产启动：
 
@@ -230,4 +231,4 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 项目名是 `jl560-order-demo-prod`。frontend 只绑定 `127.0.0.1:8088:80`。backend 和 postgres 没有宿主机端口。这个 Compose 不包含 Redis、Kafka、gRPC。`KAFKA_ADDR` 为空时，创建用户仍会留下尚未发送的 outbox 行。
 
-没有登录。公网 IP 验收还没做。
+没有登录。公网入口是宿主机 Nginx 的 HTTP 80，转到只绑定在 `127.0.0.1:8088` 的 frontend。backend 和 postgres 没有宿主机端口。域名和 HTTPS 没有做。项目到此收尾。
